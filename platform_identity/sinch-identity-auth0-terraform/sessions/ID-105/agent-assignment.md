@@ -1,6 +1,6 @@
 # Agent Assignment
 
-**Last Updated:** 2026-03-16
+**Last Updated:** 2026-03-13 10:25
 
 ---
 
@@ -23,7 +23,7 @@
 
 **Purpose:** Assignment template — populated per assignment by the intake action
 
-> **Intake action:** [actions/assignment-intake.md](/actions/assignment-intake.md)
+> **Intake action:** [actions/assignment-intake.md](actions/assignment-intake.md)
 
 ---
 
