@@ -3,7 +3,7 @@
 **Assignment:** ID-100
 **Repo:** common
 **Framework:** ~/src/llm-engineering-agent
-**WIP Session:** ~/src/WIP/common/session-ID-100-20260321-0000/
+**WIP Session:** ~/src/domains/platform_identity/common/sessions/ID-100/
 
 > Append-only. Do not edit existing entries. Add new timestamped blocks as work progresses.
 

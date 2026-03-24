@@ -13,7 +13,7 @@
 | Framework | ~/src/llm-engineering-agent |
 | Target Repo | /Users/mikbig/src/GitLab/tasks/ID-100_update_create_grpc_interceptor_use_build_session_rbac_service_access_token |
 | Assignment ID | ID-100 |
-| WIP Session Dir | ~/src/WIP/common/session-ID-100-20260321-0000/ |
+| WIP Session Dir | ~/src/domains/platform_identity/common/sessions/ID-100/ |
 | Session Started | 2026-03-21 00:00 |
 | Current Phase | 4 — Implement (Unit 1 of 3) |
 | Last Updated | 2026-03-23 00:01 |
@@ -114,24 +114,41 @@ This is a focused Go library addition. The interceptor follows existing patterns
 | 3 | Should this be a new interceptor or a new TokenValidator? | New `grpc.UnaryServerInterceptor`, placed before `auth.Interceptor` in the chain. | ✅ Resolved |
 | 4 | How should the cookie name be configured? | Constructor parameter on the interceptor. Consuming service reads from config and passes it in. | ✅ Resolved |
 | 5 | What happens when both cookie and Authorization header are present? | If `Authorization` header already exists, the interceptor is a no-op — bearer token takes precedence. | ✅ Resolved |
-| 6 | What package name/location? | New package `pkg/session/` — consistent with existing package-per-interceptor pattern (`pkg/auth/`, `pkg/basicauth/`, `pkg/correlation/`, etc.) | ✅ Resolved |
+| 6 | What package name/location? | ~~New package `pkg/session/`~~ → Revised: integrate into `pkg/auth/` using TokenResolver abstraction. Cookie token resolution is an auth concern, not a separate cross-cutting concern. | ✅ Resolved (revised) |
+| 7 | Should TokenResolver be an exported type or constructor functions? | Constructor functions — not expected to be used outside this package. | ✅ Resolved |
+| 8 | Backward compatibility for `auth.Interceptor` signature change? | Provide `InterceptorWithDefaults(validators)` convenience constructor since `auth.Interceptor` has no existing tests. Clean break for new signature, but default wrapper preserves current behavior for consuming services. | ✅ Resolved |
 
 ## Implementation Plan
 
-- [ ] **Unit 1**: Create `pkg/session/interceptor.go` — `SessionCookieInterceptor` function returning `grpc.UnaryServerInterceptor`
-  - Extract `cookie` from incoming gRPC metadata
-  - Parse cookie string to find the configured cookie name
-  - If found and no existing `authorization` header, set `authorization: Bearer <token>` in metadata
-  - If cookie not found or auth header already present, pass through unchanged
-- [ ] **Unit 2**: Create `pkg/session/interceptor_test.go` — table-driven tests
-  - Valid cookie extracted and auth header set
-  - Multiple cookies, target cookie present
-  - Cookie not present — pass through
-  - Authorization header already present — no-op
-  - Empty cookie value — pass through
-  - Missing metadata — pass through
-  - Cookie name with whitespace/formatting edge cases
-- [ ] **Unit 3**: Commit with terse message
+### Phase 1 — Initial implementation (completed)
+
+- [x] **Unit 1**: Create `pkg/session/interceptor.go` — standalone session cookie interceptor
+- [x] **Unit 2**: Create `pkg/session/interceptor_test.go` — table-driven tests
+- [x] **Unit 3**: Commit and push
+
+### Phase 2 — Refactor: integrate into `pkg/auth/` with TokenResolver abstraction
+
+- [ ] **Unit 4**: Add tests for existing `auth.Interceptor` behavior in `pkg/auth/interceptor_test.go`
+  - Valid bearer token — passes through validators
+  - Missing metadata — returns Unauthenticated
+  - Missing authorization header — returns Unauthenticated
+  - Malformed token (no "Bearer " prefix) — returns Unauthenticated
+  - Validator failure — returns Unauthenticated
+  - Multiple validators — all called in order, context chained
+  - SkipList methods — bypass auth
+- [ ] **Unit 5**: Add `TokenResolver` interface and built-in implementations to `pkg/auth/validator.go`
+  - `TokenResolver` interface: `Resolve(ctx context.Context, md metadata.MD) (token string, ok bool)`
+  - `BearerTokenResolver()` — extracts from Authorization header (current behavior)
+  - `CookieTokenResolver(cookieName)` — extracts JWT from named cookie
+- [ ] **Unit 6**: Refactor `auth.Interceptor` to accept `[]TokenResolver` + `[]TokenValidator`
+  - Try resolvers in order; first to return a token wins
+  - `InterceptorWithDefaults(validators)` convenience wrapper — uses `BearerTokenResolver` only, preserves current signature
+- [ ] **Unit 7**: Migrate session interceptor tests into `pkg/auth/interceptor_test.go`
+  - Resolver chain ordering tests
+  - Cookie resolver + bearer resolver fallback
+  - Cookie resolver standalone
+- [ ] **Unit 8**: Delete `pkg/session/` package
+- [ ] **Unit 9**: Commit (do not push until user verifies via `git diff`)
 
 ## Architecture Discovery & Validation
 
@@ -140,12 +157,12 @@ This is a focused Go library addition. The interceptor follows existing patterns
 correlation.Interceptor()  →  logging.Interceptor()  →  grpcMetrics.Interceptor()  →  annotations.Interceptor()  →  auth.Interceptor()
 ```
 
-**With new interceptor, consuming service would configure:**
+**After refactor, consuming service would configure:**
 ```
-correlation.Interceptor()  →  logging.Interceptor()  →  grpcMetrics.Interceptor()  →  annotations.Interceptor()  →  session.Interceptor(cookieName)  →  auth.Interceptor()
+correlation.Interceptor()  →  logging.Interceptor()  →  grpcMetrics.Interceptor()  →  annotations.Interceptor()  →  auth.Interceptor(resolvers, validators)
 ```
 
-The session interceptor must run **before** `auth.Interceptor` so the extracted token is available when auth validation runs.
+Token resolution is now internal to `auth.Interceptor` — no separate session interceptor needed in the chain. Services opt into cookie auth by passing `CookieTokenResolver(cookieName)` in the resolvers list.
 
 **Cookie format in metadata:** Raw HTTP cookie string — `"cdp_token=eyJhbGci...; other_cookie=value"`. Parsed by splitting on `";"`, trimming whitespace, and matching `name=value` pairs.
 
